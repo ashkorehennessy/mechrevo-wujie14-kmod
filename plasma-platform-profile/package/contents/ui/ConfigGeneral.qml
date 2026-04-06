@@ -1,9 +1,10 @@
-import QtQuick 2.6
-import QtQuick.Controls 1.3
-import QtQuick.Layouts 1.1
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 
 Item {
-    property alias cfg_updateInterval: updateInterval.value
+    id: configItem
+    property real cfg_updateInterval: 1.0
     property alias cfg_makeFontBold: makeFontBold.checked
 
     ColumnLayout {
@@ -14,10 +15,23 @@ Item {
             }
             SpinBox {
                 id: updateInterval
-                decimals: 1
-                stepSize: 0.1
-                minimumValue: 0.1
-                suffix: i18nc("Abbreviation for seconds", "s")
+                stepSize: 1
+                from: 1
+                to: 100
+                
+                value: configItem.cfg_updateInterval * 10
+                
+                onValueChanged: {
+                    configItem.cfg_updateInterval = value / 10.0
+                }
+
+                textFromValue: function(value, locale) {
+                    return Number(value / 10.0).toLocaleString(locale, 'f', 1) + " " + i18nc("Abbreviation for seconds", "s")
+                }
+
+                valueFromText: function(text, locale) {
+                    return Number.fromLocaleString(locale, text.replace(" " + i18nc("Abbreviation for seconds", "s"), "")) * 10
+                }
             }
         }
 

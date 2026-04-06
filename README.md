@@ -246,10 +246,6 @@ Besides, the polling interval can also be configured. The default is once per se
 
 ### How to use this
 
-1. Right click on your plasma desktop and select "Add Widgets..."
-2. "Get New Widgets..." -> "Install Widget from local file"
-3. Select `path/to/this/repo/plasma-platform-profile/package.plasmoid`
-4. Now again go select "Add Widgets" like in the first step and search for the newly installed widget, then add it to your desktop.
-   
-- You could then place the widget on the panel just like in the above screenshot.
-- Obviously you have to be running KDE Plasma to do this.
+```shell
+kpackagetool6 -t Plasma/Applet -i ./plasma-platform-profile/package
+```

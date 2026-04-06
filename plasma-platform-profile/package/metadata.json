@@ -11,12 +11,14 @@
         "Icon": "battery",
         "Id": "org.kde.PowerProfileMonitor",
         "Name": "Power Profile Monitor",
+        "Version": "0.2",
+        "Website": "",
         "ServiceTypes": [
             "Plasma/Applet"
-        ],
-        "Version": "0.2",
-        "Website": ""
+        ]
     },
+    "KPackageStructure": "Plasma/Applet",
     "X-Plasma-API": "declarativeappletscript",
-    "X-Plasma-MainScript": "ui/main.qml"
+    "X-Plasma-MainScript": "ui/main.qml",
+    "X-Plasma-API-Minimum-Version": "6.0"
 }

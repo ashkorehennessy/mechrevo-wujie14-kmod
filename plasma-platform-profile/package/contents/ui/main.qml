@@ -1,26 +1,20 @@
-import QtQuick 2.6
-import QtQuick.Layouts 1.1
-import org.kde.plasma.components 3.0 as PlasmaComponents
-import org.kde.plasma.plasmoid 2.0
+import QtQuick
+import QtQuick.Layouts
+import org.kde.plasma.components as PlasmaComponents
+import org.kde.plasma.plasmoid
+import QtQuick.Window
 
-Item {
-    id: main
-    anchors.fill: parent
+PlasmoidItem {
+    id: root
 
-    //height and widht, when the widget is placed in desktop
+    //height and width, when the widget is placed in desktop
     width: 40
     height: 40
 
-    //height and width, when widget is placed in plasma panel
-    Layout.preferredWidth: 40 * units.devicePixelRatio
-    Layout.preferredHeight: 40 * units.devicePixelRatio
-
-    Plasmoid.preferredRepresentation: Plasmoid.fullRepresentation
-
-
+    preferredRepresentation: fullRepresentation
 
     function getPerfModeString(){
-        var path = "/sys/firmware/acpi/platform_profile"
+        var path = "file:///sys/devices/pci0000:00/0000:00:14.3/PNP0C09:00/wujie14_powermode"
         var req = new XMLHttpRequest();
         req.open("GET", path, false);
         req.send(null);
@@ -38,35 +32,40 @@ Item {
         }
     }
 
-    
+    fullRepresentation: Item {
+        // dynamic sizing based on panel contents; avoids huge horizontal spacing on HiDPI
+        Layout.minimumWidth: 20
+        Layout.preferredWidth: 24
+        Layout.fillHeight: true
 
-    PlasmaComponents.Label {
-        id: display
+        PlasmaComponents.Label {
+            id: display
 
-        anchors {
-            fill: parent
-            margins: Math.round(parent.width * 0.01)
+            anchors {
+                fill: parent
+                margins: Math.round(parent.width * 0.01)
+            }
+
+            verticalAlignment: Text.AlignVCenter
+            horizontalAlignment: Text.AlignHCenter
+
+            text: {
+                return convertPerfModeString(getPerfModeString());
+            }
+
+            font.pixelSize: 800;
+            minimumPointSize: 8
+            fontSizeMode: Text.Fit
+            font.bold: Plasmoid.configuration.makeFontBold
         }
 
-        verticalAlignment: Text.AlignVCenter
-        horizontalAlignment: Text.AlignHCenter
-
-        text: {
-            return convertPerfModeString(getPerfModeString());
-        }
-
-        font.pixelSize: 800;
-        minimumPointSize: theme.smallestFont.pointSize
-        fontSizeMode: Text.Fit
-        font.bold: plasmoid.configuration.makeFontBold
-    }
-
-    Timer {
-        interval: plasmoid.configuration.updateInterval * 1000
-        running: true
-        repeat: true
-        onTriggered: {
-            display.text = convertPerfModeString(getPerfModeString());
+        Timer {
+            interval: Plasmoid.configuration.updateInterval * 1000
+            running: true
+            repeat: true
+            onTriggered: {
+                display.text = convertPerfModeString(getPerfModeString());
+            }
         }
     }
 }
