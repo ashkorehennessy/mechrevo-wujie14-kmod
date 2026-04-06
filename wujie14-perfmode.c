@@ -9,6 +9,29 @@
 #include "wujie14-km.h"
 
 
+/*
+ * On the PRO variant, ITSM values 0 and 1 are swapped compared to the original:
+ *   Original: 0=balanced, 1=performance, 2=quiet
+ *   PRO:      0=performance, 1=balanced, 2=quiet
+ */
+static inline u8 wujie14_pro_mode_to_itsm(enum wujie14_powermode mode)
+{
+    switch (mode) {
+    case WUJIE14_BALANCED_MODE:    return 1;
+    case WUJIE14_PERFORMANCE_MODE: return 0;
+    default:                       return (u8)mode;
+    }
+}
+
+static inline enum wujie14_powermode wujie14_pro_itsm_to_mode(u8 itsm)
+{
+    switch (itsm) {
+    case 0:  return WUJIE14_PERFORMANCE_MODE;
+    case 1:  return WUJIE14_BALANCED_MODE;
+    default: return (enum wujie14_powermode)itsm;
+    }
+}
+
 static int wujie14_set_powermode_wmi(struct wujie14_private* priv, enum wujie14_powermode powermode)
 {
     acpi_status status;
@@ -19,6 +42,10 @@ static int wujie14_set_powermode_wmi(struct wujie14_private* priv, enum wujie14_
         powermode == WUJIE14_BALANCED_MODE ||
         powermode == WUJIE14_PERFORMANCE_MODE)) {
         return -EINVAL;
+    }
+    if (priv->variant == WUJIE14_PRO) {
+        return wujie14_wmaa_query(priv, WMAA_CMD_SET, WMAA_FEAT_POWERMODE,
+                                  wujie14_pro_mode_to_itsm(powermode), NULL);
     }
     status = wmi_evaluate_method(
         WUJIE14_IP3POWERSWITCH_WMI_GUID,
@@ -44,6 +71,14 @@ static int wujie14_get_powermode_wmi(struct wujie14_private* priv, enum wujie14_
     struct acpi_buffer outbuffer = {ACPI_ALLOCATE_BUFFER, NULL};
     union acpi_object* out;
 
+    if (priv->variant == WUJIE14_PRO) {
+        u16 result;
+        int err = wujie14_wmaa_query(priv, WMAA_CMD_GET, WMAA_FEAT_POWERMODE,
+                                     0, &result);
+        if (!err)
+            *powermode = wujie14_pro_itsm_to_mode((u8)result);
+        return err;
+    }
     status = wmi_evaluate_method(
         WUJIE14_IP3POWERSWITCH_WMI_GUID,
         0,
@@ -205,16 +240,26 @@ void wujie14_powermode_wmi_event_handler(struct wujie14_private* priv)
     }
     dev_info(&priv->pdev->dev, "powermode change. Current powermode: %s\n", wujie14_powermode_to_string(current_powermode));
 #if !defined (NO_PLATFORM_PROFILE)
-    platform_profile_notify();
+    platform_profile_notify(priv->ppdev);
 #endif
 }
 
+static int wujie14_platform_profile_probe(
+    void *drvdata,
+    unsigned long *choices
+){
+    set_bit(PLATFORM_PROFILE_QUIET, choices);
+    set_bit(PLATFORM_PROFILE_BALANCED, choices);
+    set_bit(PLATFORM_PROFILE_PERFORMANCE, choices);
+    return 0;
+}
+
 static int wujie14_platform_profile_set(
-    struct platform_profile_handler* handler,
+    struct device *dev,
     enum platform_profile_option profile_option
 ){
     enum wujie14_powermode powermode;
-    struct wujie14_private* priv = container_of(handler, struct wujie14_private, pphandler);
+    struct wujie14_private* priv = dev_get_drvdata(dev);
     struct platform_device* pdev = priv->pdev;
     switch (profile_option) {
         case PLATFORM_PROFILE_BALANCED:
@@ -234,12 +279,12 @@ static int wujie14_platform_profile_set(
 }
 
 static int wujie14_platform_profile_get(
-    struct platform_profile_handler* handler,
+    struct device *dev,
     enum platform_profile_option* profile_option
 ){
     int err;
     enum wujie14_powermode powermode;
-    struct wujie14_private* priv = container_of(handler, struct wujie14_private, pphandler);
+    struct wujie14_private* priv = dev_get_drvdata(dev);
     struct platform_device* pdev = priv->pdev;
     err = wujie14_get_powermode_wmi(priv, &powermode);
     if (err) {
@@ -260,16 +305,24 @@ static int wujie14_platform_profile_get(
     return 0;
 }
 
+static const struct platform_profile_ops wujie14_pp_ops = {
+    .probe = wujie14_platform_profile_probe,
+    .profile_get = wujie14_platform_profile_get,
+    .profile_set = wujie14_platform_profile_set,
+};
+
 int wujie14_platform_profile_init(struct wujie14_private* priv)
 {
     int err = 0;
 #if !defined (NO_PLATFORM_PROFILE)
-    set_bit(PLATFORM_PROFILE_QUIET, priv->pphandler.choices);
-    set_bit(PLATFORM_PROFILE_BALANCED, priv->pphandler.choices);
-    set_bit(PLATFORM_PROFILE_PERFORMANCE, priv->pphandler.choices);
-    priv->pphandler.profile_get = wujie14_platform_profile_get;
-    priv->pphandler.profile_set = wujie14_platform_profile_set;
-    err = platform_profile_register(&priv->pphandler);
+    struct device *ppdev;
+    ppdev = platform_profile_register(&priv->pdev->dev, "wujie14",
+                                      priv, &wujie14_pp_ops);
+    if (IS_ERR(ppdev)) {
+        err = PTR_ERR(ppdev);
+    } else {
+        priv->ppdev = ppdev;
+    }
 #endif
     return err;
 }
@@ -277,7 +330,8 @@ int wujie14_platform_profile_init(struct wujie14_private* priv)
 void wujie14_platform_profile_exit(struct wujie14_private* priv)
 {
 #if !defined (NO_PLATFORM_PROFILE)
-    platform_profile_remove();
+    if (priv->ppdev)
+        platform_profile_remove(priv->ppdev);
 #endif
 }
 

@@ -9,6 +9,8 @@
 #include "wujie14-kb.h"
 #include "wujie14-km.h"
 
+extern struct wujie14_private priv;
+
 #define NTRIAL 5
 #define MWAIT 50
 
@@ -101,12 +103,21 @@ static ssize_t keyboard_backlight_level_show(struct device* dev,
                     struct device_attribute* attr, char* buf)
 {
     int err;
-    u8 data;
-    err = read_ecram(0x09,&data);
-    if (err){
-        return err;
+    if (priv.variant == WUJIE14_PRO) {
+        u16 result;
+        err = wujie14_wmaa_query(&priv, WMAA_CMD_GET,
+                                WMAA_FEAT_KBBACKLIGHT, 0, &result);
+        if (err)
+            return err;
+        return sysfs_emit(buf, "%u\n", (unsigned int)result);
     }
-    return sysfs_emit(buf, "%hhX\n", data);
+    {
+        u8 data;
+        err = read_ecram(0x09, &data);
+        if (err)
+            return err;
+        return sysfs_emit(buf, "%hhX\n", data);
+    }
 }
 
 //static inline u8 round_next_bl_level(u8 backlight_level){
@@ -191,20 +202,25 @@ static DEVICE_ATTR_RW(keyboard_backlight_time);
 // sysfs attrs should be under /sys/devices/pci0000:00/0000:00:14.3/PNP0C09:00
 int wujie14_kbd_sysfs_init(struct wujie14_private* priv){
     int err = 0;
-    // set init keyboard backlight time
-    if (init_backlight_time <= S8_MAX && init_backlight_time >= S8_MIN){
-        err = write_keyboard_backlight_time((s8)init_backlight_time);
-        if (err) goto error;
+    /* Backlight time only available on original (direct EC access) */
+    if (priv->variant != WUJIE14_PRO) {
+        if (init_backlight_time <= S8_MAX && init_backlight_time >= S8_MIN){
+            err = write_keyboard_backlight_time((s8)init_backlight_time);
+            if (err) goto error;
+        }
     }
     err = device_create_file(&priv->pdev->dev,&dev_attr_keyboard_backlight_level);
     if (err) goto error;
-    err = device_create_file(&priv->pdev->dev,&dev_attr_keyboard_backlight_time);
-    if (err) goto error;
+    if (priv->variant != WUJIE14_PRO) {
+        err = device_create_file(&priv->pdev->dev,&dev_attr_keyboard_backlight_time);
+        if (err) goto error;
+    }
 error:
     return err;
 }
 
 void wujie14_kbd_sysfs_exit(struct wujie14_private* priv){
     device_remove_file(&priv->pdev->dev,&dev_attr_keyboard_backlight_level);
-    device_remove_file(&priv->pdev->dev,&dev_attr_keyboard_backlight_time);
+    if (priv->variant != WUJIE14_PRO)
+        device_remove_file(&priv->pdev->dev,&dev_attr_keyboard_backlight_time);
 }

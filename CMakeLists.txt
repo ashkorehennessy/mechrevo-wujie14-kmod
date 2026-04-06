@@ -49,7 +49,29 @@ else()
     set(KERNELDIR_CD ${KERNELDIR_BUILD})
 endif()
 
-    
+# Auto-detect if kernel was built with clang/LLVM toolchain
+set(KBUILD_CC_FLAG "")
+if(EXISTS ${KERNELDIR_BUILD}/.config)
+    file(STRINGS ${KERNELDIR_BUILD}/.config _KERNEL_CONFIG_LINES)
+    set(_KERNEL_CC_IS_CLANG OFF)
+    set(_KERNEL_LD_IS_LLD OFF)
+    foreach(_LINE IN LISTS _KERNEL_CONFIG_LINES)
+        if(_LINE MATCHES "^CONFIG_CC_IS_CLANG=y")
+            set(_KERNEL_CC_IS_CLANG ON)
+        endif()
+        if(_LINE MATCHES "^CONFIG_LD_IS_LLD=y")
+            set(_KERNEL_LD_IS_LLD ON)
+        endif()
+    endforeach()
+    if(_KERNEL_CC_IS_CLANG AND _KERNEL_LD_IS_LLD)
+        set(KBUILD_CC_FLAG "LLVM=1")
+        message(STATUS "Kernel was built with full LLVM toolchain, passing LLVM=1 to kbuild")
+    elseif(_KERNEL_CC_IS_CLANG)
+        set(KBUILD_CC_FLAG "CC=clang")
+        message(STATUS "Kernel was built with clang, passing CC=clang to kbuild")
+    endif()
+endif()
+
 
 ### start of Kbuild generation ###
 # specify module source files here
@@ -134,7 +156,7 @@ module_init(hello_start);
 module_exit(hello_end);  
 ")
 file(WRITE ${DUMMY_MODULE_DIR}/Kbuild "obj-m := dummy_mod.o")
-execute_process(COMMAND make -C ${KERNELDIR_BUILD} M=${DUMMY_MODULE_DIR} RESULT_VARIABLE DUMMY_MOD_MAKE_RESULT)
+execute_process(COMMAND make -C ${KERNELDIR_BUILD} M=${DUMMY_MODULE_DIR} ${KBUILD_CC_FLAG} RESULT_VARIABLE DUMMY_MOD_MAKE_RESULT)
 if (DUMMY_MOD_MAKE_RESULT EQUAL 0)
 else()
     message(FATAL_ERROR "Build dummy module failed. This is likely due to a wrong kernel source directory was provided.")
@@ -233,7 +255,7 @@ endif()
 
 set(MODULE_KO ${MODULE_NAME}.ko)
 set(MODULE_KO_XZ ${MODULE_KO}.xz)
-set(KBUILD_CMD $(MAKE) -C ${KERNELDIR_BUILD} M=${CMAKE_BINARY_DIR} EXTRA_CFLAGS="${MAKE_EXTRA_CFLAGS}")
+set(KBUILD_CMD $(MAKE) -C ${KERNELDIR_BUILD} M=${CMAKE_BINARY_DIR} ${KBUILD_CC_FLAG} EXTRA_CFLAGS="${MAKE_EXTRA_CFLAGS}")
 
 add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/${MODULE_KO}

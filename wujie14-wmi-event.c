@@ -7,6 +7,7 @@
 #include "wujie14-wmi-event.h"
 #include "wujie14-perfmode.h"
 
+/* Original WUJIE 14 event handler table */
 static const struct wujie14_wmi_notify_handler_entry handler_tbl[] = {
     {
         .febc_offset = 1,
@@ -42,39 +43,70 @@ static inline wujie14_wmi_notify_handler locate_handler(
     return ret_handler;
 }
 
+/* Original WUJIE 14: handler for IP3 WMI events */
 static void wujie14_wmi_event_handler(
-    u32 value,
+    union acpi_object *data,
     void* context
 )
 {
-    struct acpi_buffer response = {ACPI_ALLOCATE_BUFFER, NULL};
-    union acpi_object* obj;
-    acpi_status status;
     wujie14_wmi_notify_handler handler;
     struct wujie14_private* priv = context;
-    status = wmi_get_event_data(value, &response);
-    if (ACPI_FAILURE(status)) {
-        dev_err(&priv->pdev->dev, "get event data failed\n");
+    if (!data || data->type != ACPI_TYPE_BUFFER) {
+        dev_err(&priv->pdev->dev, "invalid wmi event data\n");
         return;
     }
-    obj = response.pointer;
-    handler = locate_handler(obj->buffer.pointer);
+    handler = locate_handler(data->buffer.pointer);
     if (handler == NULL){
         return;
     }
     handler(priv); 
-    ACPI_FREE(response.pointer);
+}
+
+/* WUJIE14 PRO: handler for WMAA WMI events (EVBU format) */
+static void wujie14_pro_wmi_event_handler(
+    union acpi_object *data,
+    void *context
+)
+{
+    struct wujie14_private *priv = context;
+    u8 *evbu;
+
+    if (!data || data->type != ACPI_TYPE_BUFFER || data->buffer.length < 3) {
+        dev_err(&priv->pdev->dev, "invalid wmi event data\n");
+        return;
+    }
+
+    evbu = data->buffer.pointer;
+    if (evbu[0] != 1)  /* event not valid */
+        return;
+
+    switch (evbu[1]) {
+    case 0x0F:  /* power mode change */
+        wujie14_powermode_wmi_event_handler(priv);
+        break;
+    case 0x05:  /* keyboard backlight change */
+        /* notification only, no action needed */
+        break;
+    }
 }
 
 int wujie14_wmi_event_init(struct wujie14_private* priv)
 {
     acpi_status status;
-    status = wmi_install_notify_handler(
-        WUJIE14_IP3WMIEVENT_GUID,
-        wujie14_wmi_event_handler,
-        priv);
+    const char *guid;
+    wmi_notify_handler handler;
+
+    if (priv->variant == WUJIE14_PRO) {
+        guid = WUJIE14_PRO_WMIEVENT_GUID;
+        handler = wujie14_pro_wmi_event_handler;
+    } else {
+        guid = WUJIE14_IP3WMIEVENT_GUID;
+        handler = wujie14_wmi_event_handler;
+    }
+
+    status = wmi_install_notify_handler(guid, handler, priv);
     if (ACPI_FAILURE(status)){
-        dev_err(&priv->pdev->dev, "get event data failed\n");
+        dev_err(&priv->pdev->dev, "WMI event handler install failed\n");
         return -ENODEV;
     }
     return 0;
@@ -82,5 +114,8 @@ int wujie14_wmi_event_init(struct wujie14_private* priv)
 
 void wujie14_wmi_event_exit(struct wujie14_private* priv)
 {
-    wmi_remove_notify_handler(WUJIE14_IP3WMIEVENT_GUID);
+    const char *guid = (priv->variant == WUJIE14_PRO) ?
+                       WUJIE14_PRO_WMIEVENT_GUID :
+                       WUJIE14_IP3WMIEVENT_GUID;
+    wmi_remove_notify_handler(guid);
 }
